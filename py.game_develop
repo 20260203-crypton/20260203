@@ -1,0 +1,224 @@
+import pygame
+import random
+import math
+from enum import Enum, auto
+
+# ──────────────────────────────────────────────
+#  Config
+# ──────────────────────────────────────────────
+
+WIDTH, HEIGHT = 900, 600
+FPS           = 60
+SPAWN_RATE    = 10
+TRAIL_ALPHA   = 30
+MAX_PARTICLES = 2000
+
+PALETTES = {
+    "aurora": [(80,200,180),(120,240,120),(60,160,220),(180,100,240)],
+    "ember":  [(255,80,30),(255,160,20),(220,40,60),(255,220,60)],
+    "pastel": [(255,180,200),(180,220,255),(200,255,200),(255,230,180)],
+    "neon":   [(0,255,160),(0,180,255),(200,0,255),(255,0,120)],
+}
+
+# ──────────────────────────────────────────────
+#  Particle Modes
+# ──────────────────────────────────────────────
+
+class Mode(Enum):
+    BURST    = auto()
+    FOUNTAIN = auto()
+    ORBIT    = auto()
+    RAIN     = auto()
+
+# ──────────────────────────────────────────────
+#  Particle
+# ──────────────────────────────────────────────
+
+class Particle:
+    __slots__ = ("x","y","vx","vy","life","max_life","size","color","mode","angle","radius")
+
+    def __init__(self, x, y, palette, mode):
+        self.x, self.y = float(x), float(y)
+        self.mode      = mode
+        self.color     = random.choice(palette)
+        self.life      = random.randint(50, 100)
+        self.max_life  = self.life
+        self.size      = random.uniform(2.5, 6.0)
+        self.angle     = 0.0
+        self.radius    = 0.0
+
+        if mode == Mode.BURST:
+            angle   = random.uniform(0, math.tau)
+            speed   = random.uniform(1.5, 5.5)
+            self.vx = math.cos(angle) * speed
+            self.vy = math.sin(angle) * speed
+
+        elif mode == Mode.FOUNTAIN:
+            self.vx = random.gauss(0, 1.2)
+            self.vy = random.uniform(-7, -3)
+
+        elif mode == Mode.ORBIT:
+            self.angle  = random.uniform(0, math.tau)
+            self.radius = random.uniform(0, 5)
+            speed       = random.uniform(2, 5)
+            self.vx     = math.cos(self.angle) * speed
+            self.vy     = math.sin(self.angle) * speed
+
+        elif mode == Mode.RAIN:
+            self.vx = random.gauss(0, 0.4)
+            self.vy = random.uniform(2, 6)
+
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+
+        if self.mode == Mode.BURST:
+            self.vy += 0.10
+            self.vx *= 0.98
+
+        elif self.mode == Mode.FOUNTAIN:
+            self.vy += 0.12
+            self.vx *= 0.97
+
+        elif self.mode == Mode.ORBIT:
+            self.angle  += 0.06
+            self.radius += 0.15
+            self.vx = math.cos(self.angle) * self.radius
+            self.vy = math.sin(self.angle) * self.radius * 0.6
+
+        elif self.mode == Mode.RAIN:
+            self.vy += 0.06
+            self.vx *= 0.995
+
+        self.life -= 1
+
+    def draw(self, surf):
+        t     = self.life / self.max_life
+        alpha = int(255 * t)
+        r     = max(1, int(self.size * t))
+
+        cr, cg, cb = self.color
+        cr = int(cr * t + 255 * (1 - t) * 0.1)
+        cg = int(cg * t + 255 * (1 - t) * 0.1)
+        cb = int(cb * t + 255 * (1 - t) * 0.1)
+
+        glow = pygame.Surface((r*6, r*6), pygame.SRCALPHA)
+        pygame.draw.circle(glow, (cr, cg, cb, max(0, alpha//5)), (r*3, r*3), r*3)
+        pygame.draw.circle(glow, (cr, cg, cb, max(0, alpha//2)), (r*3, r*3), r)
+        surf.blit(glow, (int(self.x) - r*3, int(self.y) - r*3))
+
+    @property
+    def alive(self):
+        return self.life > 0 and 0 <= self.x <= WIDTH and self.y <= HEIGHT + 50
+
+# ──────────────────────────────────────────────
+#  Background
+# ──────────────────────────────────────────────
+
+def draw_background(surface, t):
+    for y in range(0, HEIGHT, 2):
+        wave = math.sin(y * 0.008 + t) * 18
+        r = max(0, min(255, int(8  + wave * 0.3)))
+        g = max(0, min(255, int(12 + wave * 0.5)))
+        b = max(0, min(255, int(28 + wave * 1.2)))
+        pygame.draw.line(surface, (r, g, b), (0, y),   (WIDTH, y))
+        pygame.draw.line(surface, (r, g, b), (0, y+1), (WIDTH, y+1))
+
+# ──────────────────────────────────────────────
+#  HUD
+# ──────────────────────────────────────────────
+
+def draw_hud(surface, font, mode, palette_name, count):
+    labels = [
+        "MODE  [ 1 ] BURST  [ 2 ] FOUNTAIN  [ 3 ] ORBIT  [ 4 ] RAIN",
+        "COLOR [ Q ] AURORA [ W ] EMBER     [ E ] PASTEL [ R ] NEON   [ C ] CLEAR",
+        f"Active: {count}   Current: {mode.name} / {palette_name.upper()}",
+    ]
+    y = HEIGHT - 14 * len(labels) - 8
+    for text in labels:
+        s = font.render(text, True, (160, 200, 200))
+        surface.blit(s, (10, y))
+        y += 14
+
+# ──────────────────────────────────────────────
+#  Main
+# ──────────────────────────────────────────────
+
+def main():
+    pygame.init()
+    screen = pygame.display.set_mode((WIDTH, HEIGHT))
+    pygame.display.set_caption("Particle Playground")
+    clock = pygame.time.Clock()
+    font  = pygame.font.SysFont("monospace", 11)
+
+    trail_surf = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+    trail_surf.fill((0, 0, 0, TRAIL_ALPHA))
+    glow_surf  = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+
+    particles    = []
+    mode         = Mode.BURST
+    palette_name = "aurora"
+    t            = 0.0
+
+    key_mode_map = {
+        pygame.K_1: Mode.BURST,
+        pygame.K_2: Mode.FOUNTAIN,
+        pygame.K_3: Mode.ORBIT,
+        pygame.K_4: Mode.RAIN,
+    }
+    key_palette_map = {
+        pygame.K_q: "aurora",
+        pygame.K_w: "ember",
+        pygame.K_e: "pastel",
+        pygame.K_r: "neon",
+    }
+
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                running = False
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    running = False
+                elif event.key in key_mode_map:
+                    mode = key_mode_map[event.key]
+                elif event.key in key_palette_map:
+                    palette_name = key_palette_map[event.key]
+                elif event.key == pygame.K_c:
+                    particles.clear()
+
+        mx, my  = pygame.mouse.get_pos()
+        buttons = pygame.mouse.get_pressed()
+        palette = PALETTES[palette_name]
+
+        if buttons[0] and len(particles) < MAX_PARTICLES:
+            for _ in range(SPAWN_RATE):
+                jx = mx + random.gauss(0, 4)
+                jy = my + random.gauss(0, 4)
+                particles.append(Particle(jx, jy, palette, mode))
+
+        t += 0.025
+
+        for p in particles:
+            p.update()
+        particles = [p for p in particles if p.alive]
+
+        draw_background(screen, t)
+        screen.blit(trail_surf, (0, 0))
+
+        glow_surf.fill((0, 0, 0, 0))
+        for p in particles:
+            p.draw(glow_surf)
+        screen.blit(glow_surf, (0, 0))
+
+        draw_hud(screen, font, mode, palette_name, len(particles))
+
+        pygame.display.flip()
+        clock.tick(FPS)
+
+    pygame.quit()
+
+
+if __name__ == "__main__":
+    main()
