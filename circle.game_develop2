@@ -1,0 +1,77 @@
+import pygame
+import sys
+import math
+
+pygame.init()
+screen = pygame.display.set_mode((800, 600))
+pygame.display.set_caption("My First Pygame")
+WHITE = (255, 255, 255)
+BLUE = (0, 0, 255)
+RED = (255, 0, 0)
+clock = pygame.time.Clock()
+
+# 원의 초기 위치
+x, y = 400, 300
+speed = 5
+
+# 발사체 리스트
+bullets = []
+bullet_speed = 7
+last_shot_time = 0
+shot_interval = 500  # 0.5초 = 500ms
+
+running = True
+while running:
+    current_time = pygame.time.get_ticks()
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+
+    # 키 입력 처리
+    keys = pygame.key.get_pressed()
+    if keys[pygame.K_w]:
+        y -= speed
+    if keys[pygame.K_s]:
+        y += speed
+    if keys[pygame.K_a]:
+        x -= speed
+    if keys[pygame.K_d]:
+        x += speed
+
+    # 화면 경계 처리
+    x = max(50, min(750, x))
+    y = max(50, min(550, y))
+
+    # 0.5초마다 마우스 방향으로 발사
+    if current_time - last_shot_time >= shot_interval:
+        mouse_x, mouse_y = pygame.mouse.get_pos()
+        dx = mouse_x - x
+        dy = mouse_y - y
+        dist = math.hypot(dx, dy)
+        if dist != 0:
+            vx = (dx / dist) * bullet_speed
+            vy = (dy / dist) * bullet_speed
+            bullets.append([float(x), float(y), vx, vy])
+        last_shot_time = current_time
+
+    # 발사체 업데이트
+    for bullet in bullets:
+        bullet[0] += bullet[2]
+        bullet[1] += bullet[3]
+
+    # 화면 밖 발사체 제거
+    bullets = [b for b in bullets if 0 <= b[0] <= 800 and 0 <= b[1] <= 600]
+
+    # 그리기
+    screen.fill(WHITE)
+    pygame.draw.circle(screen, BLUE, (int(x), int(y)), 25)
+
+    for bullet in bullets:
+        pygame.draw.rect(screen, RED, (int(bullet[0]), int(bullet[1]), 10, 10))
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
+sys.exit()
