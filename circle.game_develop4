@@ -1,0 +1,281 @@
+import pygame
+import sys
+import math
+import random
+
+pygame.init()
+screen = pygame.display.set_mode((800, 600))
+pygame.display.set_caption("My First Pygame")
+WHITE = (255, 255, 255)
+BLUE = (0, 0, 255)
+RED = (255, 0, 0)
+BLACK = (0, 0, 0)
+GREEN = (0, 200, 0)
+YELLOW = (255, 215, 0)
+ORANGE = (255, 140, 0)
+clock = pygame.time.Clock()
+
+PLAYER_RADIUS = 25
+MAX_LIVES = 3
+INVINCIBLE_DURATION = 2000  # 무적 시간 (ms)
+BLINK_INTERVAL = 100         # 무적 중 깜빡임 간격 (ms)
+
+
+def init_game():
+    global x, y, bullets, last_shot_time, enemies, last_enemy_time
+    global kill_count, lives, game_over, invincible_until
+
+    x, y = 400, 300
+    bullets = []
+    last_shot_time = 0
+    enemies = []
+    last_enemy_time = 0
+    kill_count = 0
+    lives = MAX_LIVES
+    game_over = False
+    invincible_until = 0  # 무적 종료 시각 (ms), 0 = 무적 아님
+
+init_game()
+
+speed = 5
+bullet_speed = 10
+shot_interval = 100
+enemy_interval = 1500
+elite_kill_threshold = 10
+
+
+def spawn_enemy():
+    side = random.choice(['top', 'bottom', 'left', 'right'])
+    if side == 'top':
+        ex, ey = random.randint(0, 800), -20
+    elif side == 'bottom':
+        ex, ey = random.randint(0, 800), 620
+    elif side == 'left':
+        ex, ey = -20, random.randint(0, 600)
+    else:
+        ex, ey = 820, random.randint(0, 600)
+    return {'x': float(ex), 'y': float(ey), 'hp': 5, 'max_hp': 5, 'type': 'normal'}
+
+def spawn_elite():
+    side = random.choice(['top', 'bottom', 'left', 'right'])
+    if side == 'top':
+        ex, ey = random.randint(0, 800), -40
+    elif side == 'bottom':
+        ex, ey = random.randint(0, 800), 640
+    elif side == 'left':
+        ex, ey = -40, random.randint(0, 600)
+    else:
+        ex, ey = 840, random.randint(0, 600)
+    return {'x': float(ex), 'y': float(ey), 'hp': 30, 'max_hp': 30, 'type': 'elite'}
+
+def draw_triangle(surface, color, cx, cy, size=20):
+    points = [
+        (cx, cy - size),
+        (cx - size, cy + size),
+        (cx + size, cy + size)
+    ]
+    pygame.draw.polygon(surface, color, points)
+
+def draw_star(surface, color, cx, cy, size=40):
+    points = []
+    for i in range(10):
+        angle = math.pi / 5 * i - math.pi / 2
+        r = size if i % 2 == 0 else size * 0.45
+        px = cx + math.cos(angle) * r
+        py = cy + math.sin(angle) * r
+        points.append((px, py))
+    pygame.draw.polygon(surface, color, points)
+    pygame.draw.polygon(surface, ORANGE, points, 3)
+
+def draw_hp_bar(surface, cx, cy, hp, max_hp, bar_width, is_elite=False):
+    bar_height = 6
+    bx = cx - bar_width // 2
+    by = cy - (50 if is_elite else 32)
+    pygame.draw.rect(surface, (80, 80, 80), (bx, by, bar_width, bar_height))
+    ratio = hp / max_hp
+    fill_color = GREEN if ratio > 0.5 else (YELLOW if ratio > 0.25 else RED)
+    pygame.draw.rect(surface, fill_color, (bx, by, int(bar_width * ratio), bar_height))
+    pygame.draw.rect(surface, BLACK, (bx, by, bar_width, bar_height), 1)
+
+def draw_lives(surface, lives, max_lives, current_time, inv_until):
+    """하단 좌측: 하트 아이콘으로 목숨 표시 + 무적 게이지"""
+    font = pygame.font.SysFont(None, 30)
+    heart_full  = (220, 50,  50)
+    heart_empty = (160, 160, 160)
+
+    bx, by = 10, 562
+    for i in range(max_lives):
+        color = heart_full if i < lives else heart_empty
+        hx = bx + i * 34
+        pygame.draw.circle(surface, color, (hx + 7,  by + 7), 7)
+        pygame.draw.circle(surface, color, (hx + 19, by + 7), 7)
+        pygame.draw.polygon(surface, color, [(hx, by + 11), (hx + 26, by + 11), (hx + 13, by + 24)])
+
+    # 무적 게이지 (하트 오른쪽)
+    if current_time < inv_until:
+        remaining = inv_until - current_time
+        ratio = remaining / INVINCIBLE_DURATION
+        gx = bx + max_lives * 34 + 10
+        gy = by + 6
+        gw, gh = 80, 12
+        pygame.draw.rect(surface, (180, 180, 220), (gx, gy, gw, gh))
+        pygame.draw.rect(surface, (100, 100, 220), (gx, gy, int(gw * ratio), gh))
+        pygame.draw.rect(surface, BLACK, (gx, gy, gw, gh), 1)
+        inv_text = font.render("무적", True, (60, 60, 200))
+        surface.blit(inv_text, (gx + gw + 6, gy - 2))
+
+def draw_game_over(surface, kills):
+    overlay = pygame.Surface((800, 600), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 160))
+    surface.blit(overlay, (0, 0))
+
+    font_big = pygame.font.SysFont(None, 80)
+    font_mid = pygame.font.SysFont(None, 40)
+    font_sml = pygame.font.SysFont(None, 30)
+
+    go_text = font_big.render("GAME OVER", True, RED)
+    surface.blit(go_text, go_text.get_rect(center=(400, 220)))
+
+    kill_text = font_mid.render(f"Kills: {kills}", True, WHITE)
+    surface.blit(kill_text, kill_text.get_rect(center=(400, 310)))
+
+    restart_text = font_sml.render("Press  R  to restart", True, (200, 200, 200))
+    surface.blit(restart_text, restart_text.get_rect(center=(400, 370)))
+
+
+running = True
+while running:
+    current_time = pygame.time.get_ticks()
+    is_invincible = current_time < invincible_until
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            running = False
+        if game_over and event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_r:
+                init_game()
+
+    if not game_over:
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_w]: y -= speed
+        if keys[pygame.K_s]: y += speed
+        if keys[pygame.K_a]: x -= speed
+        if keys[pygame.K_d]: x += speed
+        x = max(50, min(750, x))
+        y = max(50, min(550, y))
+
+        # 발사체 생성
+        if current_time - last_shot_time >= shot_interval:
+            mouse_x, mouse_y = pygame.mouse.get_pos()
+            dx = mouse_x - x
+            dy = mouse_y - y
+            dist = math.hypot(dx, dy)
+            if dist != 0:
+                vx = (dx / dist) * bullet_speed
+                vy = (dy / dist) * bullet_speed
+                bullets.append([float(x), float(y), vx, vy])
+            last_shot_time = current_time
+
+        # 일반 적 생성
+        if current_time - last_enemy_time >= enemy_interval:
+            enemies.append(spawn_enemy())
+            last_enemy_time = current_time
+
+        # 발사체 이동
+        for bullet in bullets:
+            bullet[0] += bullet[2]
+            bullet[1] += bullet[3]
+        bullets = [b for b in bullets if 0 <= b[0] <= 800 and 0 <= b[1] <= 600]
+
+        # 적 이동
+        spd_map = {'normal': 1.5, 'elite': 0.9}
+        for enemy in enemies:
+            dx = x - enemy['x']
+            dy = y - enemy['y']
+            dist = math.hypot(dx, dy)
+            if dist != 0:
+                s = spd_map[enemy['type']]
+                enemy['x'] += (dx / dist) * s
+                enemy['y'] += (dy / dist) * s
+
+        # 총알-적 충돌
+        bullets_to_remove = set()
+        for enemy in enemies:
+            hit_radius = 40 if enemy['type'] == 'elite' else 22
+            for i, bullet in enumerate(bullets):
+                if math.hypot(bullet[0] - enemy['x'], bullet[1] - enemy['y']) < hit_radius:
+                    enemy['hp'] -= 1
+                    bullets_to_remove.add(i)
+        bullets = [b for i, b in enumerate(bullets) if i not in bullets_to_remove]
+
+        # ── 플레이어-적 원형 충돌 (목숨 + 무적) ──────────────────────────
+        if not is_invincible:
+            for enemy in enemies:
+                enemy_radius = 40 if enemy['type'] == 'elite' else 22
+                if math.hypot(x - enemy['x'], y - enemy['y']) < PLAYER_RADIUS + enemy_radius:
+                    lives -= 1
+                    if lives <= 0:
+                        lives = 0
+                        game_over = True
+                    else:
+                        invincible_until = current_time + INVINCIBLE_DURATION
+                    break  # 한 프레임에 목숨 1개만 소모
+        # ─────────────────────────────────────────────────────────────────
+
+        # 처치 카운트
+        dead = [e for e in enemies if e['hp'] <= 0]
+        normal_kills = sum(1 for e in dead if e['type'] == 'normal')
+        if normal_kills > 0:
+            prev = kill_count
+            kill_count += normal_kills
+            for threshold in range(
+                (prev // elite_kill_threshold + 1) * elite_kill_threshold,
+                (kill_count // elite_kill_threshold + 1) * elite_kill_threshold,
+                elite_kill_threshold
+            ):
+                if threshold <= kill_count:
+                    enemies.append(spawn_elite())
+        enemies = [e for e in enemies if e['hp'] > 0]
+
+    # ── 그리기 ────────────────────────────────────────────────────────────
+    screen.fill(WHITE)
+
+    # 플레이어: 무적 중 깜빡임 처리
+    show_player = True
+    if is_invincible:
+        show_player = (current_time // BLINK_INTERVAL) % 2 == 0
+    if show_player:
+        player_color = (150, 150, 255) if is_invincible else BLUE
+        pygame.draw.circle(screen, player_color, (int(x), int(y)), PLAYER_RADIUS)
+
+    for bullet in bullets:
+        pygame.draw.rect(screen, RED, (int(bullet[0]), int(bullet[1]), 10, 10))
+
+    for enemy in enemies:
+        ex, ey = int(enemy['x']), int(enemy['y'])
+        if enemy['type'] == 'elite':
+            draw_star(screen, YELLOW, ex, ey, size=40)
+            draw_hp_bar(screen, ex, ey, enemy['hp'], enemy['max_hp'], bar_width=80, is_elite=True)
+        else:
+            draw_triangle(screen, BLACK, ex, ey, size=20)
+            draw_hp_bar(screen, ex, ey, enemy['hp'], enemy['max_hp'], bar_width=44)
+
+    # 킬 카운트 UI
+    font = pygame.font.SysFont(None, 30)
+    kill_text = font.render(
+        f"Kills: {kill_count}  |  Next Elite: {elite_kill_threshold - (kill_count % elite_kill_threshold)}",
+        True, BLACK
+    )
+    screen.blit(kill_text, (10, 10))
+
+    # 목숨 + 무적 게이지 UI
+    draw_lives(screen, lives, MAX_LIVES, current_time, invincible_until)
+
+    if game_over:
+        draw_game_over(screen, kill_count)
+
+    pygame.display.flip()
+    clock.tick(60)
+
+pygame.quit()
+sys.exit()
