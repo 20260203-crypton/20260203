@@ -11,7 +11,8 @@ AI 답변: pygame.key.get_pressed() 함수 사용
          적용 결과: 성공
 
 Q2. 위 코드에 대해서 설명 해줘
-         pygame.key.get_pressed() 함수 사용
+
+AI 답변: pygame.key.get_pressed() 함수 사용
          if keys[pygame.K_w] 처럼 특정 키가 눌려있는지를 확인
          키를 꾹 누르고 있는 상태(연속동작)를 처리하기에 적합
 
